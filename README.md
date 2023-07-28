@@ -9,5 +9,5 @@ Important links
 - [module on amazon](https://www.amazon.com/DSD-TECH-Channels-Bluetooth-Compatible/dp/B07GFH5J96)
 
 
-# PIP
+PIP modules
 - you need `bleak`
