@@ -3,10 +3,7 @@
 Scan/Discovery
 --------------
 
-Example showing how to scan for BLE devices.
-
-Updated on 2019-03-25 by hbldh <henrik.blidh@nedomkull.com>
-
+Some code copied from an example Bleak script: https://github.com/hbldh/bleak/blob/develop/examples/discover.py
 """
 
 import argparse
@@ -80,8 +77,5 @@ async def findDSDTech():
  
 
 if __name__ == "__main__":
-  #  parser = argparse.ArgumentParser()
-
-   # args = parser.parse_args()
 
     exit(main())
