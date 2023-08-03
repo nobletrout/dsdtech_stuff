@@ -11,10 +11,16 @@ Updated on 2019-03-25 by hbldh <henrik.blidh@nedomkull.com>
 
 import argparse
 import asyncio
+import threading
+import time
+import struct
+import inputimeout
 
-from bleak import BleakScanner, BleakClient
+from bleak import BleakScanner, BleakClient, BleakGATTCharacteristic
 
 PASSWORD = [0x04,0xD2]
+programContinues = False
+
 
 
 # True = on, False = off
@@ -62,24 +68,81 @@ async def noodleAbout(device):
             for characteristic in service.characteristics:
                 print("\tCharacteristic: %s " % characteristic.uuid)
                 print("\t\tProperties: %s" % characteristic.properties)
-        connected = True
-        while connected and client.is_connected:
-            try:
-                port_number = int(input("Select a port to toggle [1-4]: ")) - 1
-            except ValueError:
-                continue
-            if port_number > 3:
-                connected = False
-            if port_number > 3 or port_number < 0:
-                continue
-            port_table[port_number] = not port_table[port_number]
-            write_value = enum_ports[port_number][port_table[port_number]]
-#            message_prep(write_value)
-            await flipPort(client, "0000ffe1-0000-1000-8000-00805f9b34fb", message_prep(write_value))
+        await client.start_notify("0000ffe1-0000-1000-8000-00805f9b34fb", callback)
+        time.sleep(5)
+        await asyncio.gather(
+            relayStatusThread(client),
+            switch_loop(client),
+        )
+        
+
+def select_port():
+    try:
+        return (int(inputimeout.inputimeout(prompt="Select a port to toggle [1-4]: ", timeout=3))-1)
+    except:
+        raise ValueError
+
+async def switch_loop(client): 
+    global port_table, programContinues
+    connected = True
+    while connected and client.is_connected:
+        await client.write_gatt_char("0000ffe1-0000-1000-8000-00805f9b34fb", message_prep([0x05,0x00]))
+        print(port_table)
+        try:
+            port_number = await asyncio.to_thread(select_port)
+        except ValueError:
+            continue
+        if port_number > 3:
+            connected = False
+        if port_number > 3 or port_number < 0:
+            continue
+        write_value = enum_ports[port_number][not port_table[port_number]]
+        port_table[port_number] = not port_table[port_number]
+        await flipPort(client, "0000ffe1-0000-1000-8000-00805f9b34fb", message_prep(write_value))
+    programContinues = False
+
+
+async def relayStatusThread(client):
+    while programContinues:
+        #print("I am thread")
+        await client.write_gatt_char("0000ffe1-0000-1000-8000-00805f9b34fb", message_prep([0x05,0x00]), response=False)
+        await asyncio.sleep(5)
+
+
+def checkXor(somebytes):
+    xor_byte = somebytes[0]
+    for i in somebytes[1:-1]:
+        xor_byte = xor_byte ^ i
+    return (xor_byte == somebytes[-1])
+
+# returned bytes are sent 1 byte at a time
+# thanks guys
+returnbytes = []
+messageState = False
+def callback(sender: BleakGATTCharacteristic, data: bytearray):
+    global returnbytes, messageState
+    if messageState == False and data[0] == 0xA1:
+        messageState = True
+        returnbytes = []
+    if messageState == True and data[0] == 0xAA:
+        if checkXor(returnbytes):
+            returnbytes += data
+            messageState = False
+            updatePortStatus(returnbytes)
+            #print(returnbytes)
+    if messageState:
+        returnbytes += data
+
+def updatePortStatus(somebytes):
+    global port_table
+    # if this is a port status message
+    if somebytes[0:2] == [0xA1, 0x05]:
+        for idx, i in enumerate(reversed(somebytes[3:3+somebytes[2]])):
+            port_table[idx] = (i == 1)
 
 async def flipPort(client, uuid, write_value):
-    await client.write_gatt_char(uuid, write_value)
-            
+    await client.write_gatt_char(uuid, write_value, response=False)
+
 
 async def findDSDTech():
     print("looking for DSD Tech devices")
